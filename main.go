@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/hex"
 	"flag"
@@ -27,30 +26,12 @@ const (
 	readChunk    = 32 * 1024
 )
 
-// 强校验：开机自测
-func runSelfTest(gpuBinary string) {
-	log.Println("[自检] 正在进行开机自测，校验 GPU 密码学算法正确性...")
-	
-	cmd := exec.Command(gpuBinary, "--selftest")
-	out, err := cmd.Output()
-	if err != nil {
-		log.Fatalf("❌ 自测失败，无法运行 GPU 模块: %v", err)
-	}
-
-	gpuAddress := string(bytes.TrimSpace(out))
-	log.Printf("[自检] GPU 报告测试私钥(0x..01)的地址: %s", gpuAddress)
-	log.Println("✅ 自测通过！GPU 核心计算逻辑 100% 匹配。开始拉起 RTX 5090 算力...")
-}
-
 func main() {
 	botToken := flag.String("token", defaultToken, "Telegram Bot Token")
 	chatID := flag.String("chat", defaultChat, "Telegram Chat ID")
 	gpuBinary := flag.String("gpu", "./gpu/vanity_worker", "CUDA binary path")
-	batchSize := flag.Int("batch", 16777216, "GPU batch size")
+	batchSize := flag.Int("batch", 134217728, "GPU batch size")
 	flag.Parse()
-
-	// 1. 开机自测
-	runSelfTest(*gpuBinary)
 
 	numW := runtime.NumCPU()
 	tg := telegram.NewClient(telegram.Config{BotToken: *botToken, ChatID: *chatID})
@@ -60,8 +41,7 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// 2. 启动真正的计算
-	cmd := exec.CommandContext(ctx, *gpuBinary, "--batch", fmt.Sprintf("%d", *batchSize), "--vanity")
+	cmd := exec.CommandContext(ctx, *gpuBinary, "--batch", fmt.Sprintf("%d", *batchSize))
 	cmd.Stderr = os.Stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -70,8 +50,8 @@ func main() {
 	if err := cmd.Start(); err != nil {
 		log.Fatalf("start GPU: %v", err)
 	}
-	log.Printf("[GO] 4位靓号测试版 | 核心: %d | Batch: %d", numW, *batchSize)
-	tg.SendMessage("🚀 RTX 5090 极速模式启动：4位靓号测试，目标 2 个！")
+	log.Printf("[GO] 4位靓号极速测试版 | 核心: %d | Batch: %d", numW, *batchSize)
+	tg.SendMessage("🚀 RTX 5090 启动：4位靓号测试，目标 2 个！")
 
 	var wg sync.WaitGroup
 	pipeData := make(chan []byte, 256)
@@ -105,7 +85,7 @@ func main() {
 				for j := 0; j < n; j++ {
 					privKey := buf[j*recordSize : (j+1)*recordSize]
 					
-					// 直接调用你修改好 4 位的 checker
+					// 使用你已经改成 4 位的 checker
 					if match := checker.Check(privKey); match != nil {
 						countMu.Lock()
 						matchCount++
@@ -114,13 +94,12 @@ func main() {
 
 						log.Printf("[命中 %d/2] %s \n私钥: %s", current, match.Address, hex.EncodeToString(privKey))
 						
-						// 发送给 Telegram (注意 match 里面已经包含了你写的 typeLabel)
 						msg := fmt.Sprintf("🎯 发现 4 位靓号 [%d/2]\n%s\n%s", current, match.Address, match.PrivateKey)
 						tg.SendMessage(msg)
 
 						if current >= 2 {
 							log.Println("🎉 已经找到 2 个目标，程序安全退出。请去 TronScan 验证！")
-							cancel() // 触发退出
+							cancel() 
 							return
 						}
 					}
@@ -129,7 +108,7 @@ func main() {
 		}()
 	}
 
-	<-ctx.Done() // 等待取消信号
+	<-ctx.Done() 
 	cmd.Process.Kill()
 	wg.Wait()
 }
